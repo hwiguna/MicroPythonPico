@@ -1,3 +1,7 @@
+# Mandelbrot Pico in MicroPython with Zoom - by Hari Wiguna, 2021
+# Math courtesy of:
+# https://www.codingame.com/playgrounds/2358/how-to-plot-the-mandelbrot-set/mandelbrot-set
+
 from machine import Pin, I2C, ADC
 from ssd1306 import SSD1306_I2C
 import framebuf
@@ -214,17 +218,7 @@ def Loop():
         DrawMandelbrot()
         while not ButtonPressed():
             MoveCursor()
-            
 
 def main():
     Setup()
     Loop()
-
-#     b2=bytearray(40)
-#     b2[0]=255
-#     b2[1]=0
-#     b2[2]=0
-#     b2[3]=255
-#     fb = framebuf.FrameBuffer(b2, 5,8, framebuf.MVLSB)
-#     oled.blit(fb,20,0)
-#     oled.show()
