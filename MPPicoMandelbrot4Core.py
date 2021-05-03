@@ -6,18 +6,117 @@ from machine import Pin, I2C, ADC
 from ssd1306 import SSD1306_I2C
 import framebuf
 import time
-import mandelbrot
+import _thread
+import gc
 
 #-- Parameters --
 WIDTH, HEIGHT = 128, 64
 width2 = int(WIDTH/2)
 height2 = int(HEIGHT/2)
 
-realStart, realEnd = -2-.8, 2
+realStart, realEnd = -2-1, 2
 imStart, imEnd = -1,1
+MAX_ITER = 25 # orig 80, 30 crashes
 
-def DrawMandelbrot():
-    global oled, brotFB, cursorFB, isHiRez, nextRefresh
+results = [False] * HEIGHT #One column of the display. Initialize thread result to all off
+resultsReady=False
+
+def mandelbrot(c):
+    global MAX_ITER
+    z,n = 0,0
+    while abs(z) <= 2 and n < MAX_ITER:
+        z = z*z + c
+        n += 1
+    return n
+
+def mandelbrotThreadY(y):
+    global MAX_ITER
+    global WIDTH, HEIGHT, realStart, realEnd, imStart, imEnd
+    global results, resultsReady
+    #print("Thread Begin y=",y)
+    yy = imStart + (y / HEIGHT) * (imEnd - imStart)
+    for x in range(WIDTH):
+        results[x]=False
+    for x in range(WIDTH):
+        xx = realStart + (x / WIDTH) * (realEnd - realStart)
+        c = complex(xx, yy) # Convert pixel coordinate to complex number
+        m = mandelbrot(c)   # Compute the number of iterations
+        color = 1 - int(m/MAX_ITER)
+        results[x] = color>0
+    resultsReady = True
+    #print("Thread Done x", y)
+    _thread.exit() # when done, commit suicide so we could be re-incarnated for next X.
+
+def DrawMandelbrotY():
+    global oled, brotFB, cursorFB, isHiRez, nextRefresh, MAX_ITER
+    global results, resultsReady
+    #print("DRAWINGY:", realStart, realEnd, imStart, imEnd)
+    stopWatch = time.ticks_ms()
+    RE_START = realStart
+    RE_END = realEnd
+    IM_START = imStart
+    IM_END = imEnd
+
+    #brotFB.fill(0)
+    
+    for y in range(0, HEIGHT, 2):
+        if gc.mem_free() < 10000:
+            gc.collect()
+        print("mem free=",gc.mem_free())
+        print("y=",y)
+        resultsReady=False # Will be set by thread to True when it's done computing row.
+        _thread.start_new_thread(mandelbrotThreadY,(y,))
+        
+        y1 = y+1
+        #print("Main begin y1=",y1)
+        yy = IM_START + (y1 / HEIGHT) * (IM_END - IM_START)
+        for x in range(WIDTH): # We're drawing two rows at a time. One by the thread, the other by main.
+            xx = RE_START + (x / WIDTH) * (RE_END - RE_START)
+            c = complex(xx, yy) # Convert pixel coordinate to complex number
+            m = mandelbrot(c)   # Compute the number of iterations
+            color = 1 - int(m/MAX_ITER)
+            brotFB.pixel(x,y1, 1 if color>0 else 0) # Plot the point
+        #print("Main End x1=",x1)
+                   
+        stopwatchStart = time.ticks_ms()
+        #print("Waiting...")
+        while not resultsReady:
+            pass
+        #print("waited ", time.ticks_ms()-stopwatchStart, "ms")
+        
+        # Plot the X column computed by the thread
+        for x in range(WIDTH):
+            brotFB.pixel(x,y, 1 if results[x] else 0)
+
+        if y % 4 == 0: # No need to refresh everytime we go through X loop.
+            oled.blit(brotFB,0,0)
+            oled.show()
+
+    oled.blit(brotFB,0,0)
+    oled.show()
+
+
+def mandelbrotThreadX(x):
+    global MAX_ITER
+    global WIDTH, HEIGHT, realStart, realEnd, imStart, imEnd
+    global results, resultsReady
+    #print("Thread Begin x=",x)
+    xx = realStart + (x / WIDTH) * (realEnd - realStart)
+#     for y in range(HEIGHT):
+#         results[y]=False
+    for y in range(HEIGHT):
+        yy = imStart + (y / HEIGHT) * (imEnd - imStart)
+        c = complex(xx, yy) # Convert pixel coordinate to complex number
+        m = mandelbrot(c)   # Compute the number of iterations
+        color = 1 - int(m/MAX_ITER)
+        results[y] = color>0
+    resultsReady = True
+    #print("Thread Done x", x)
+    _thread.exit() # when done, commit suicide so we could be re-incarnated for next X.
+
+def DrawMandelbrotX():
+    global oled, brotFB, cursorFB, isHiRez, nextRefresh, MAX_ITER
+    global results, resultsReady
     print("DRAWING:", realStart, realEnd, imStart, imEnd)
     stopWatch = time.ticks_ms()
     RE_START = realStart
@@ -25,28 +124,38 @@ def DrawMandelbrot():
     IM_START = imStart
     IM_END = imEnd
 
-    MAX_ITER = 25
     brotFB.fill(0)
-    step = 1 if isHiRez else 2
-    for x in range(0, WIDTH,step):
-        xx = RE_START + (x / WIDTH) * (RE_END - RE_START)
-        for y in range(0, HEIGHT, step):
+    
+    for x in range(0, WIDTH,2): # We're drawing two columns at a time. One by the thread, the other by main.
+        resultsReady=False # Will be set by thread to True when it's done computing column.
+        _thread.start_new_thread(mandelbrotThreadX,(x,))
+        
+        x1 = x+1
+        #print("Main begin x1=",x1)
+        xx = RE_START + (x1 / WIDTH) * (RE_END - RE_START)
+        for y in range(0, HEIGHT, 1):
             yy = IM_START + (y / HEIGHT) * (IM_END - IM_START)
             c = complex(xx, yy) # Convert pixel coordinate to complex number
-            m = mandelbrot.mandelbrot(c)   # Compute the number of iterations
+            m = mandelbrot(c)   # Compute the number of iterations
             color = 1 - int(m/MAX_ITER)
-            if isHiRez:
-                brotFB.pixel(x,y, 1 if color>0 else 0) # Plot the point
-            else:
-                brotFB.fill_rect(x,y,2,2, 1 if color>0 else 0 )
-        if time.ticks_ms() >= nextRefresh:     
-#             if ButtonPressed():
-#                 return
+            brotFB.pixel(x1,y, 1 if color>0 else 0) # Plot the point
+        #print("Main End x1=",x1)
+                   
+        #stopwatchStart = time.ticks_ms()
+        while not resultsReady:
+            pass
+        #print("waited ", time.ticks_ms()-stopwatchStart, "ms")
+        
+        # Plot the X column computed by the thread
+        for y in range(HEIGHT):
+            brotFB.pixel(x,y, 1 if results[y] else 0)
+
+        if x % 6 == 0: # No need to refresh everytime we go through X loop.
             oled.blit(brotFB,0,0)
             oled.show()
-            nextRefresh = time.ticks_ms() + 500
+
+    oled.blit(brotFB,0,0)
     oled.show()
-    print(time.ticks_diff(time.ticks_ms(), stopWatch))
 
 def SetupDisplay():
     global oled
@@ -80,7 +189,7 @@ def SetupUI():
     buttonRez = Pin(12, Pin.IN, Pin.PULL_UP)
 
 def Setup():
-    global oled, brotFB, cursorFB
+    global oled, brotFB, cursorFB, threadState
     SetupDisplay()
     SetupFB()
     SetupUI()
@@ -212,15 +321,16 @@ def Loop():
     global nextSensorRead, nextRefresh, lastX0, lastY0
     global isHiRez
     
-    isHiRez = True
+    isHiRez = False
     nextSensorRead, nextRefresh =-1,-1
     lastX0, lastY0 = -1024,-1024
 
     while True:
-        DrawMandelbrot()
+        DrawMandelbrotX()
         while not ButtonPressed():
             MoveCursor()
 
 def main():
     Setup()
     Loop()
+

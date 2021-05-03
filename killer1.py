@@ -15,17 +15,9 @@ def main():
         (18,16),\
         (19,15),(19,14),(19,13),\
         (20,12)]
-
-    for snake in range(5):
-            for p in points:
-                oled.pixel(snake*(20-9)+p[0],p[1], 1)
-                oled.show()
-            sleep(.01)
     
     for snake in range(5):
             for p in points:
                 oled.pixel(snake*(20-9)+p[0],p[1], 0)
                 oled.show()
-            sleep(.005)
-
-#main()
+            sleep(.005)    

@@ -7,6 +7,7 @@ from ssd1306 import SSD1306_I2C
 import framebuf
 import time
 import mandelbrot
+import _thread
 
 #-- Parameters --
 WIDTH, HEIGHT = 128, 64
@@ -15,9 +16,28 @@ height2 = int(HEIGHT/2)
 
 realStart, realEnd = -2-.8, 2
 imStart, imEnd = -1,1
+MAX_ITER = 80
+
+tReal, tImaginary = 0.0, 0.0
+m2=MAX_ITER #Result
+threadState = 0 #0:Idle, 1:input ready, 2:Processing, 3:Result Ready
+
+def mandelbrotThread():
+    global tReal, tImaginary, m2, threadState, MAX_ITER
+    while True:
+        if threadState==1:
+            threadState=2
+            c2 = complex(tReal, tImaginary)
+            z,n = 0,0
+            while abs(z) <= 2 and n < MAX_ITER:
+                z = z*z + c2
+                n += 1
+            m2 = n
+            threadState=3
 
 def DrawMandelbrot():
     global oled, brotFB, cursorFB, isHiRez, nextRefresh
+    global tReal, tImaginary, m2, threadState
     print("DRAWING:", realStart, realEnd, imStart, imEnd)
     stopWatch = time.ticks_ms()
     RE_START = realStart
@@ -25,21 +45,38 @@ def DrawMandelbrot():
     IM_START = imStart
     IM_END = imEnd
 
-    MAX_ITER = 25
     brotFB.fill(0)
-    step = 1 if isHiRez else 2
-    for x in range(0, WIDTH,step):
+    for x in range(0, WIDTH,1):
         xx = RE_START + (x / WIDTH) * (RE_END - RE_START)
-        for y in range(0, HEIGHT, step):
+        for y in range(0, HEIGHT, 2):
+            #-- Second core --
+            y2 = y+1
+            yy2 = IM_START + (y2 / HEIGHT) * (IM_END - IM_START)
+            tReal, tImaginary = xx, yy2 # Convert pixel coordinate to complex number
+            print("waiting thread to become idle", threadState)
+            while threadState!=0: # Wait until done computing previous input
+                pass
+            print("Thread was idle!", threadState)
+            threadState=1 # Tell thread to start computing
+            print("Tell thread to start processing!", threadState)
+            
             yy = IM_START + (y / HEIGHT) * (IM_END - IM_START)
             c = complex(xx, yy) # Convert pixel coordinate to complex number
             m = mandelbrot.mandelbrot(c)   # Compute the number of iterations
             color = 1 - int(m/MAX_ITER)
-            if isHiRez:
-                brotFB.pixel(x,y, 1 if color>0 else 0) # Plot the point
-            else:
-                brotFB.fill_rect(x,y,2,2, 1 if color>0 else 0 )
-        if time.ticks_ms() >= nextRefresh:     
+            
+            #threadState will be 1 or 2 at this point.
+            print("wait for calculation to be completed.", threadState)
+            while threadState!=3: # wait for calculation to be completed.
+                pass
+            print("Thread result ready!", threadState)
+            color2 = 1 - int(m2/MAX_ITER) # use calculation result.
+            print("Done using thread result, let it compute next one", threadState)
+            #brotFB.pixel(x,y+1, 1 if color2>0 else 0) # Plot the point
+            #brotFB.pixel(x,y, 1 if color>0 else 0) # Plot the point
+            threadState=0 # Done using thread result, let it compute next one
+            
+        if time.ticks_ms() >= nextRefresh:
 #             if ButtonPressed():
 #                 return
             oled.blit(brotFB,0,0)
@@ -48,6 +85,11 @@ def DrawMandelbrot():
     oled.show()
     print(time.ticks_diff(time.ticks_ms(), stopWatch))
 
+def SetupThread():
+    global threadState
+    threadState = 0 # IMPORTANT! We can't rely on module intialization for next run.
+    _thread.start_new_thread(mandelbrotThread,())
+     
 def SetupDisplay():
     global oled
     i2c=I2C(1,sda=Pin(2), scl=Pin(3), freq=400000)
@@ -84,6 +126,7 @@ def Setup():
     SetupDisplay()
     SetupFB()
     SetupUI()
+    SetupThread()
 
 def get_pixel(buffer, x,y):
     yy = y % 8
@@ -212,7 +255,7 @@ def Loop():
     global nextSensorRead, nextRefresh, lastX0, lastY0
     global isHiRez
     
-    isHiRez = True
+    isHiRez = False
     nextSensorRead, nextRefresh =-1,-1
     lastX0, lastY0 = -1024,-1024
 
