@@ -8,7 +8,8 @@ from random import randrange
 # Terminologies:
 # Everything is made up of four arc sprites: a,b,c,d.
 # Sequence defines the order of arcs to create the slithering "S" curve.
-# each arc is followed by two characters that indicate where origin where the arc should be drawn at relative to the snake position.
+# each arc is followed by two characters that indicate where origin where the arc should be drawn at
+# relative to the snake segment that arc represents.
 # These three characters are collectively called a "code"
 
 # turntable is a very tedious lookup dictionary.
@@ -94,7 +95,7 @@ turnTable = {
 def plot(x,y,sprite,isDraw):
     for p in sprite:
         oled.rect(border+x*3*scale+p[0]*scale,border+63-y*3*scale-p[1]*scale, scale,scale, 1 if isDraw else 0)
-
+        
 def draw(c,r,a):
     plot(c,r,a,True)
 
@@ -172,7 +173,7 @@ def initSnakeDown(x,y):
         y += 1
 
 def plotSeg(x,y, segCode, isDraw): # segCode is like d--, x,y is virtual position before offsets
-    print("plotting", segCode, "at", x,y)
+    print("plotting", segCode, "at", x,y, "Apple at", appleX, appleY)
     spriteName = segCode[0] # grab the sprite name (ie d)
     sprite = toSprite(spriteName)
     x += toOffset(segCode[1])
@@ -209,8 +210,9 @@ def CheckWalls():
     if headY>=gameHeight: isDead=True
     
 def moveSnake(dx,dy):
-    global snake
+    global snake, isDead
     
+    # Each direction has its own sequence of sprites
     seq = deltaToSeq(dx,dy)
     print("MoveSnake. dx,dy", dx, dy)
     
@@ -225,14 +227,28 @@ def moveSnake(dx,dy):
         
     nuHead = (nuX, nuY, nuHeadCode)
     print("curHead", curHead, " --> nuHeadCode", nuHeadCode)
+    
+    if isInSnake(nuX,nuY): # Ran into self
+        isDead=True
 
     #-- Append New Head --
     snake.insert(0, nuHead)
-    drawSeg(nuX, nuY, nuHeadCode)
 
-    if not isInSnake(appleX, appleY):
-        print("Apple is at ",appleX, appleY)
-        ChopTail()
+    #-- Head coincides with apple? --
+    #if abs(nuX-appleX)<=1 and abs(nuY-appleY)<=1:
+    if nuX==appleX and nuY==appleY:
+        print("Ate apple at ",appleX, appleY)
+        drawApple(0) # erase the apple we just ate
+        # Don't erase tail so snake becomes one segment longer after eating apple
+        # Also, create a new apple (outside the snake)
+        randomApple()
+        drawApple(1) # draw new apple
+    else:
+        if not isDead:
+            ChopTail() # Normal path is to erase tail as snake slithers around
+
+    #draw new head after erasing apple
+    drawSeg(nuX, nuY, nuHeadCode)
     
     oled.show()
 
@@ -304,15 +320,16 @@ def randomApple():
     global appleX, appleY
     hasCollision = True
     while hasCollision:
-        appleX, appleY = randrange(gameWidth), randrange(gameHeight)
+        appleX, appleY = randrange(1,gameWidth), randrange(1,gameHeight)
         hasCollision = isInSnake(appleX, appleY)
-    print("APPLE is at", appleX, appleY )
+    print("New apple is at", appleX, appleY )
 
-def drawApple():
+def drawApple(color):
     x,y=appleX, appleY
-    p = [2,-2] # position offset
-    appleSize = 4
-    oled.rect(border+x*3*scale+p[0]*scale,border+63-y*3*scale-p[1]*scale, appleSize,appleSize, 1)
+    p = [-1,+1] # position offset
+    appleSize = 3*scale
+    oled.rect(border+x*3*scale+p[0]*scale,border+63-y*3*scale-p[1]*scale, appleSize,appleSize, color)
+#   oled.rect(border+x*3*scale+p[0]*scale,border+63-y*3*scale-p[1]*scale, scale,scale, 1 if isDraw else 0)
         
 def main():
     sleep(1)
@@ -333,8 +350,15 @@ def main():
     #initSnakeUp(x,y)
     #initSnakeDown(x,y)
     
-    randomApple() 
-    drawApple()
+    randomApple()
+#     head = snake[0]
+#     global appleX, appleY
+#     appleX, appleY = head[0],head[1]
+#     drawSeg(head[0],head[1],head[2])
+    drawApple(1)
+#     oled.show()
+    
+#    isDead=True
     
     while not isDead:
         # draw walls because snake actually overlaps with wall :-(
