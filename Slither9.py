@@ -1,5 +1,10 @@
-# sn89 start coding walls and apples
-
+# Slithering Snake by Hari Wiguna, 2021
+#
+# Connect 128x64 OLED SDA to GPIO 2, SCL to GPIO 3
+# Pushbuttons brings internal pullup resistors on:
+# GPIO 12(Up), 13(Right), 14(Left), 15(Down), and 27(Start)
+# to ground
+    
 from machine import Pin, I2C, ADC
 from ssd1306 import SSD1306_I2C
 from utime import sleep, ticks_ms
